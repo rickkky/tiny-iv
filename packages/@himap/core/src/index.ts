@@ -1,3 +1,10 @@
-export const hello = () => {
-  return 'Hello, world!';
-};
+export function setup(engine: string) {
+  window.hmap = {
+    version: '1.0.0',
+  };
+  console.log(`Setup Hmap engine: ${engine}`);
+}
+
+export function hello() {
+  return 'Hello, HiMap!';
+}
