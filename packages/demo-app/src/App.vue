@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
+import { ref, onMounted } from 'vue';
+import HelloWorld from './components/HelloWorld.vue';
+import init, { greet } from 'supercluster-rs';
+
+const msg = ref('');
+
+onMounted(async () => {
+  await init();
+  msg.value = greet();
+});
 </script>
 
 <template>
@@ -11,7 +20,7 @@ import HelloWorld from './components/HelloWorld.vue'
       <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
     </a>
   </div>
-  <HelloWorld msg="Vite + Vue" />
+  <HelloWorld :msg="msg" />
 </template>
 
 <style scoped>

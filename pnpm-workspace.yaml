@@ -1,3 +1,4 @@
 packages:
   - 'packages/*'
   - 'packages/@himap/*'
+  - 'packages/supercluster-rs/pkg'

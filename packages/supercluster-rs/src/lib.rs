@@ -9,5 +9,5 @@ extern "C" {
 
 #[wasm_bindgen]
 pub fn greet() -> String {
-    return "Hello".to_owned() + &hello();
+    return hello() + &" Rust!".to_owned();
 }
