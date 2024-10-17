@@ -1,4 +1,7 @@
+mod kdbush;
 mod utils;
+
+pub mod supercluster;
 
 use wasm_bindgen::prelude::*;
 
