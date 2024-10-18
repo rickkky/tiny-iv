@@ -1,5 +1,3 @@
-use wasm_bindgen::prelude::*;
-
 /// Array of coordinates with longitude as first value and latitude as second one.
 type Point = [f64; 2];
 

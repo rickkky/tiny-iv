@@ -1,7 +1,8 @@
 use crate::kdbush::KDBush;
-use geojson::{feature::Id, Feature, FeatureCollection, Geometry, JsonObject, Value::Point};
+use geojson::{feature::Id, Feature, Geometry, JsonObject, Value::Point};
 use serde_json::json;
 use std::f64::consts::PI;
+use wasm_bindgen::prelude::*;
 
 /// An offset index used to access the zoom level value associated with a cluster in the data arrays.
 const OFFSET_ZOOM: usize = 2;
@@ -19,6 +20,7 @@ const OFFSET_NUM: usize = 5;
 const OFFSET_PROP: usize = 6;
 
 /// Supercluster configuration options.
+#[wasm_bindgen]
 #[derive(Clone, Debug)]
 pub struct Options {
     /// Minimal zoom level to generate clusters on.
@@ -40,7 +42,89 @@ pub struct Options {
     pub node_size: usize,
 }
 
+#[wasm_bindgen]
+#[derive(Clone, Debug)]
+pub struct FeatureM {
+    id: String,
+
+    pub x: f64,
+
+    pub y: f64,
+
+    pub cluster_id: Option<usize>,
+
+    pub count: u32,
+}
+
+impl FeatureM {
+    pub fn get_id(&self) -> String {
+        self.id.clone()
+    }
+
+    pub fn set_id(&mut self, id: String) {
+        self.id = id;
+    }
+
+    pub fn to_feature(&self) -> Feature {
+        let geometry = Geometry::new(Point(vec![self.x, self.y]));
+
+        Feature {
+            id: Some(Id::String(self.id.clone())),
+            bbox: None,
+            foreign_members: None,
+            geometry: Some(geometry),
+            properties: None,
+        }
+    }
+
+    pub fn from_feature(feature: &Feature) -> Self {
+        let id = match &feature.id {
+            Some(Id::String(id)) => id.clone(),
+            _ => "".to_string(),
+        };
+
+        let coordinates = match &feature.geometry {
+            Some(geometry) => match &geometry.value {
+                Point(coords) => coords.clone(),
+                _ => vec![0.0, 0.0],
+            },
+            None => vec![0.0, 0.0],
+        };
+
+        let cluster_id = match &feature.properties {
+            Some(properties) => match properties.get("cluster_id") {
+                Some(cluster_id) => match cluster_id.as_u64() {
+                    Some(cluster_id) => Some(cluster_id as usize),
+                    None => None,
+                },
+                None => None,
+            },
+            None => None,
+        };
+
+        let count = match &feature.properties {
+            Some(properties) => match properties.get("count") {
+                Some(count) => match count.as_u64() {
+                    Some(count) => count as u32,
+                    None => 1,
+                },
+                None => 1,
+            },
+            None => 1,
+        };
+
+        FeatureM {
+            id,
+            x: coordinates[0],
+            y: coordinates[1],
+            cluster_id,
+            count,
+        }
+    }
+}
+
 /// A spatial clustering configuration and data structure.
+#[wasm_bindgen]
 #[derive(Clone, Debug)]
 pub struct Supercluster {
     /// Configuration settings.
@@ -53,12 +137,13 @@ pub struct Supercluster {
     stride: usize,
 
     /// Input data points.
-    points: Vec<Feature>,
+    points: Vec<FeatureM>,
 
     /// Clusters metadata.
     cluster_props: Vec<JsonObject>,
 }
 
+#[wasm_bindgen]
 impl Supercluster {
     /// Create a new instance of `Supercluster` with the specified configuration settings.
     ///
@@ -69,6 +154,7 @@ impl Supercluster {
     /// # Returns
     ///
     /// A new `Supercluster` instance with the given configuration.
+    #[wasm_bindgen(constructor)]
     pub fn new(options: Options) -> Self {
         let capacity = options.max_zoom + 1;
         let trees: Vec<KDBush> = (0..capacity + 1)
@@ -93,7 +179,7 @@ impl Supercluster {
     /// # Returns
     ///
     /// A mutable reference to the updated `Supercluster` instance.
-    pub fn load(&mut self, points: Vec<Feature>) -> &mut Self {
+    pub fn load(&mut self, points: Vec<FeatureM>) {
         let min_zoom = self.options.min_zoom;
         let max_zoom = self.options.max_zoom;
 
@@ -102,7 +188,8 @@ impl Supercluster {
         // Generate a cluster object for each point and index input points into a KD-tree
         let mut data = vec![];
 
-        for (i, feature) in self.points.iter().enumerate() {
+        for (i, feature_m) in self.points.iter().enumerate() {
+            let feature = feature_m.to_feature();
             // Store internal point/cluster data in flat numeric arrays for performance
             let coordinates = match &feature.geometry {
                 Some(geometry) => match &geometry.value {
@@ -142,8 +229,6 @@ impl Supercluster {
             self.trees[(zoom as usize) + 1].data = previous;
             self.trees[zoom as usize] = self.create_tree(current);
         }
-
-        self
     }
 
     /// Retrieve clustered features within the specified bounding box and zoom level.
@@ -156,7 +241,8 @@ impl Supercluster {
     /// # Returns
     ///
     /// A vector of GeoJSON features representing the clusters within the specified bounding box and zoom level.
-    pub fn get_clusters(&self, bbox: [f64; 4], zoom: u8) -> Vec<Feature> {
+    pub fn get_clusters(&self, bbox_v: Vec<f64>, zoom: u8) -> Vec<FeatureM> {
+        let bbox = bbox_v.as_slice();
         let mut min_lng = ((((bbox[0] + 180.0) % 360.0) + 360.0) % 360.0) - 180.0;
         let min_lat = bbox[1].clamp(-90.0, 90.0);
         let mut max_lng = if bbox[2] == 180.0 {
@@ -170,8 +256,8 @@ impl Supercluster {
             min_lng = -180.0;
             max_lng = 180.0;
         } else if min_lng > max_lng {
-            let eastern_hem = self.get_clusters([min_lng, min_lat, 180.0, max_lat], zoom);
-            let western_hem = self.get_clusters([-180.0, min_lat, max_lng, max_lat], zoom);
+            let eastern_hem = self.get_clusters(vec![min_lng, min_lat, 180.0, max_lat], zoom);
+            let western_hem = self.get_clusters(vec![-180.0, min_lat, max_lng, max_lat], zoom);
 
             return eastern_hem.into_iter().chain(western_hem).collect();
         }
@@ -191,11 +277,11 @@ impl Supercluster {
             clusters.push(if tree.data[k + OFFSET_NUM] > 1.0 {
                 get_cluster_json(&tree.data, k, &self.cluster_props)
             } else {
-                self.points[tree.data[k + OFFSET_ID] as usize].clone()
+                self.points[tree.data[k + OFFSET_ID] as usize].to_feature()
             });
         }
 
-        clusters
+        clusters.iter().map(|c| FeatureM::from_feature(c)).collect()
     }
 
     /// Retrieve the cluster features for a specified cluster ID.
@@ -208,21 +294,21 @@ impl Supercluster {
     ///
     /// A `Result` containing a vector of GeoJSON features representing the children of the specified cluster if successful,
     /// or an error message if the cluster is not found.
-    pub fn get_children(&self, cluster_id: usize) -> Result<Vec<Feature>, &'static str> {
+    pub fn get_children(&self, cluster_id: usize) -> Result<Vec<FeatureM>, String> {
         let origin_id = self.get_origin_id(cluster_id);
         let origin_zoom = self.get_origin_zoom(cluster_id);
         let error_msg = "No cluster with the specified id.";
         let tree = self.trees.get(origin_zoom);
 
         if tree.is_none() {
-            return Err(error_msg);
+            return Err(error_msg.to_string());
         }
 
         let tree = tree.expect("tree is not defined");
         let data = &tree.data;
 
         if origin_id * self.stride >= data.len() {
-            return Err(error_msg);
+            return Err(error_msg.to_string());
         }
 
         let r = self.options.radius
@@ -244,16 +330,16 @@ impl Supercluster {
                 } else {
                     let point_id = data[k + OFFSET_ID] as usize;
 
-                    children.push(self.points[point_id].clone());
+                    children.push(self.points[point_id].to_feature());
                 }
             }
         }
 
         if children.is_empty() {
-            return Err(error_msg);
+            return Err(error_msg.to_string());
         }
 
-        Ok(children)
+        Ok(children.iter().map(|c| FeatureM::from_feature(c)).collect())
     }
 
     /// Retrieve individual leaf features within a cluster.
@@ -267,7 +353,7 @@ impl Supercluster {
     /// # Returns
     ///
     /// A vector of GeoJSON features representing the individual leaf features within the cluster.
-    pub fn get_leaves(&self, cluster_id: usize, limit: usize, offset: usize) -> Vec<Feature> {
+    pub fn get_leaves(&self, cluster_id: usize, limit: usize, offset: usize) -> Vec<FeatureM> {
         let mut leaves = vec![];
 
         self.append_leaves(&mut leaves, cluster_id, limit, offset, 0);
@@ -286,18 +372,14 @@ impl Supercluster {
     /// # Returns
     ///
     /// An optional `Tile` containing a vector of GeoJSON features within the specified tile, or `None` if there are no features.
-    pub fn get_tile(&self, z: u8, x: f64, y: f64) -> Option<FeatureCollection> {
+    pub fn get_tile(&self, z: u8, x: f64, y: f64) -> Vec<FeatureM> {
         let tree = &self.trees[self.limit_zoom(z)];
         let z2: f64 = (2u32).pow(z as u32) as f64;
         let p = self.options.radius / self.options.extent;
         let top = (y - p) / z2;
         let bottom = (y + 1.0 + p) / z2;
 
-        let mut tile = FeatureCollection {
-            bbox: None,
-            foreign_members: None,
-            features: vec![],
-        };
+        let mut tile = vec![];
 
         let ids = tree.range((x - p) / z2, top, (x + 1.0 + p) / z2, bottom);
 
@@ -315,11 +397,7 @@ impl Supercluster {
             self.add_tile_features(&ids, &tree.data, -1.0, y, z2, &mut tile);
         }
 
-        if tile.features.is_empty() {
-            None
-        } else {
-            Some(tile)
-        }
+        tile
     }
 
     /// Determine the zoom level at which a specific cluster expands.
@@ -346,11 +424,8 @@ impl Supercluster {
                 break;
             }
 
-            cluster_id = match children[0].property("cluster_id") {
-                Some(property) => match property.as_u64() {
-                    Some(id) => id as usize,
-                    None => break,
-                },
+            cluster_id = match children[0].cluster_id {
+                Some(id) => id,
                 None => break,
             };
         }
@@ -373,7 +448,7 @@ impl Supercluster {
     /// The updated count of skipped leaves after processing the current cluster.
     fn append_leaves(
         &self,
-        result: &mut Vec<Feature>,
+        result: &mut Vec<FeatureM>,
         cluster_id: usize,
         limit: usize,
         offset: usize,
@@ -385,26 +460,17 @@ impl Supercluster {
         };
 
         for child in cluster {
-            if child.contains_property("cluster") {
-                if let Some(point_count) = child.property("point_count").and_then(|p| p.as_i64()) {
-                    if skipped + point_count as usize <= offset {
-                        // Skip the whole cluster
-                        skipped += point_count as usize;
-                    } else {
-                        // Enter the cluster
-                        if let Some(cluster_id) =
-                            child.property("cluster_id").and_then(|c| c.as_u64())
-                        {
-                            skipped = self.append_leaves(
-                                result,
-                                cluster_id as usize,
-                                limit,
-                                offset,
-                                skipped,
-                            );
-                        }
-                        // Exit the cluster
+            if child.cluster_id.is_some() {
+                let point_count = child.count as i64;
+                if skipped + point_count as usize <= offset {
+                    // Skip the whole cluster
+                    skipped += point_count as usize;
+                } else {
+                    // Enter the cluster
+                    if let Some(cluster_id) = child.cluster_id {
+                        skipped = self.append_leaves(result, cluster_id, limit, offset, skipped);
                     }
+                    // Exit the cluster
                 }
             } else if skipped < offset {
                 // Skip a single point
@@ -461,7 +527,7 @@ impl Supercluster {
         x: f64,
         y: f64,
         z2: f64,
-        tile: &mut FeatureCollection,
+        tile: &mut Vec<FeatureM>,
     ) {
         for i in ids {
             let k = i * self.stride;
@@ -469,50 +535,44 @@ impl Supercluster {
 
             let px;
             let py;
-            let properties;
+            let cluster_id;
+            let count;
 
             if is_cluster {
-                properties = get_cluster_properties(data, k, &self.cluster_props);
+                let properties = get_cluster_properties(data, k, &self.cluster_props);
 
                 px = data[k];
                 py = data[k + 1];
+                cluster_id = properties.get("cluster_id").unwrap().as_u64().unwrap() as usize;
+                count = properties.get("point_count").unwrap().as_u64().unwrap() as u32;
             } else {
                 let p = &self.points[data[k + OFFSET_ID] as usize];
-                properties = match p.properties.as_ref() {
-                    Some(properties) => properties.clone(),
-                    None => continue, // Handle the case where properties is None
+                px = lng_x(p.x);
+                py = lat_y(p.y);
+                cluster_id = match p.cluster_id {
+                    Some(id) => id,
+                    None => continue, // Handle the case where cluster_id is None
                 };
-
-                match p.geometry.as_ref() {
-                    Some(geometry) => {
-                        if let Point(coordinates) = &geometry.value {
-                            px = lng_x(coordinates[0]);
-                            py = lat_y(coordinates[1]);
-                        } else {
-                            continue;
-                        }
-                    }
-                    None => continue, // Handle the case where geometry is None
-                }
+                count = p.count;
             }
 
             let id = if is_cluster {
-                Some(Id::String(data[k + OFFSET_ID].to_string()))
+                data[k + OFFSET_ID].to_string()
             } else {
                 self.points[data[k + OFFSET_ID] as usize].id.clone()
             };
 
-            let geometry = Geometry::new(Point(vec![
-                (self.options.extent * (px * z2 - x)).round(),
-                (self.options.extent * (py * z2 - y)).round(),
-            ]));
+            // let geometry = Geometry::new(Point(vec![
+            //     (self.options.extent * (px * z2 - x)).round(),
+            //     (self.options.extent * (py * z2 - y)).round(),
+            // ]));
 
-            tile.features.push(Feature {
+            tile.push(FeatureM {
                 id,
-                bbox: None,
-                foreign_members: None,
-                geometry: Some(geometry),
-                properties: Some(properties),
+                x: self.options.extent * (px * z2 - x).round(),
+                y: self.options.extent * (py * z2 - y).round(),
+                cluster_id: Some(cluster_id),
+                count,
             });
         }
     }
@@ -700,13 +760,13 @@ fn get_cluster_json(data: &[f64], i: usize, cluster_props: &[JsonObject]) -> Fea
 /// Properties for the cluster based on the clustered point data.
 fn get_cluster_properties(data: &[f64], i: usize, cluster_props: &[JsonObject]) -> JsonObject {
     let count = data[i + OFFSET_NUM];
-    let abbrev = if count >= 10000.0 {
-        format!("{}k", count / 1000.0)
-    } else if count >= 1000.0 {
-        format!("{:}k", count / 100.0 / 10.0)
-    } else {
-        count.to_string()
-    };
+    // let abbrev = if count >= 10000.0 {
+    //     format!("{}k", count / 1000.0)
+    // } else if count >= 1000.0 {
+    //     format!("{:}k", count / 100.0 / 10.0)
+    // } else {
+    //     count.to_string()
+    // };
 
     let mut properties = if !cluster_props.is_empty() && data.get(i + OFFSET_PROP).is_some() {
         cluster_props[data[i + OFFSET_PROP] as usize].clone()
@@ -714,13 +774,13 @@ fn get_cluster_properties(data: &[f64], i: usize, cluster_props: &[JsonObject]) 
         JsonObject::new()
     };
 
-    properties.insert("cluster".to_string(), json!(true));
+    // properties.insert("cluster".to_string(), json!(true));
     properties.insert(
         "cluster_id".to_string(),
         json!(data[i + OFFSET_ID] as usize),
     );
     properties.insert("point_count".to_string(), json!(count as usize));
-    properties.insert("point_count_abbreviated".to_string(), json!(abbrev));
+    // properties.insert("point_count_abbreviated".to_string(), json!(abbrev));
 
     properties
 }
@@ -823,34 +883,34 @@ mod tests {
         let i = 0;
         let mut cluster_props = JsonObject::new();
 
-        cluster_props.insert("cluster".to_string(), json!(false));
+        // cluster_props.insert("cluster".to_string(), json!(false));
         cluster_props.insert("cluster_id".to_string(), json!(0));
         cluster_props.insert("point_count".to_string(), json!(0));
         cluster_props.insert("name".to_string(), json!("name".to_string()));
-        cluster_props.insert(
-            "point_count_abbreviated".to_string(),
-            json!("0".to_string()),
-        );
+        // cluster_props.insert(
+        //     "point_count_abbreviated".to_string(),
+        //     json!("0".to_string()),
+        // );
 
         let result = get_cluster_json(&data, i, &[cluster_props]);
 
         assert_eq!(result.id, Some(Id::String("0".to_string())));
 
-        assert!(result.property("cluster").unwrap().as_bool().unwrap());
+        // assert!(result.property("cluster").unwrap().as_bool().unwrap());
         assert_eq!(result.property("cluster_id").unwrap().as_i64().unwrap(), 0);
         assert_eq!(result.property("point_count").unwrap().as_i64().unwrap(), 3);
         assert_eq!(
             result.property("name").unwrap().as_str().unwrap(),
             "name".to_string()
         );
-        assert_eq!(
-            result
-                .property("point_count_abbreviated")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "3".to_string()
-        );
+        // assert_eq!(
+        //     result
+        //         .property("point_count_abbreviated")
+        //         .unwrap()
+        //         .as_str()
+        //         .unwrap(),
+        //     "3".to_string()
+        // );
 
         let coordinates = match result.geometry {
             Some(geometry) => match geometry.value {
@@ -873,23 +933,23 @@ mod tests {
 
         assert_eq!(result.id, Some(Id::String("0".to_string())));
 
-        assert!(result
-            .property("cluster")
-            .as_ref()
-            .unwrap()
-            .as_bool()
-            .unwrap());
+        // assert!(result
+        //     .property("cluster")
+        //     .as_ref()
+        //     .unwrap()
+        //     .as_bool()
+        //     .unwrap());
         assert_eq!(result.property("cluster_id").unwrap().as_i64().unwrap(), 0);
         assert_eq!(result.property("point_count").unwrap().as_i64().unwrap(), 3);
         assert!(result.property("name").is_none());
-        assert_eq!(
-            result
-                .property("point_count_abbreviated")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "3".to_string()
-        );
+        // assert_eq!(
+        //     result
+        //         .property("point_count_abbreviated")
+        //         .unwrap()
+        //         .as_str()
+        //         .unwrap(),
+        //     "3".to_string()
+        // );
 
         let coordinates = match result.geometry {
             Some(geometry) => match geometry.value {
@@ -908,32 +968,32 @@ mod tests {
         let i = 0;
         let mut cluster_props = JsonObject::new();
 
-        cluster_props.insert("cluster".to_string(), json!(false));
+        // cluster_props.insert("cluster".to_string(), json!(false));
         cluster_props.insert("cluster_id".to_string(), json!(0));
         cluster_props.insert("point_count".to_string(), json!(0));
         cluster_props.insert("name".to_string(), json!("name".to_string()));
-        cluster_props.insert(
-            "point_count_abbreviated".to_string(),
-            json!("0".to_string()),
-        );
+        // cluster_props.insert(
+        //     "point_count_abbreviated".to_string(),
+        //     json!("0".to_string()),
+        // );
 
         let result = get_cluster_properties(&data, i, &[cluster_props]);
 
-        assert!(result.get("cluster").unwrap().as_bool().unwrap());
+        // assert!(result.get("cluster").unwrap().as_bool().unwrap());
         assert_eq!(result.get("cluster_id").unwrap().as_i64().unwrap(), 0);
         assert_eq!(result.get("point_count").unwrap().as_i64().unwrap(), 10000);
         assert_eq!(
             result.get("name").unwrap().as_str().unwrap(),
             "name".to_string()
         );
-        assert_eq!(
-            result
-                .get("point_count_abbreviated")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "10k".to_string()
-        );
+        // assert_eq!(
+        //     result
+        //         .get("point_count_abbreviated")
+        //         .unwrap()
+        //         .as_str()
+        //         .unwrap(),
+        //     "10k".to_string()
+        // );
     }
 
     #[test]
@@ -944,18 +1004,18 @@ mod tests {
 
         let result = get_cluster_properties(&data, i, &cluster_props);
 
-        assert!(result.get("cluster").unwrap().as_bool().unwrap());
+        // assert!(result.get("cluster").unwrap().as_bool().unwrap());
         assert_eq!(result.get("cluster_id").unwrap().as_i64().unwrap(), 0);
         assert_eq!(result.get("point_count").unwrap().as_i64().unwrap(), 1000);
         assert!(result.get("name").is_none());
-        assert_eq!(
-            result
-                .get("point_count_abbreviated")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "1k".to_string()
-        );
+        // assert_eq!(
+        //     result
+        //         .get("point_count_abbreviated")
+        //         .unwrap()
+        //         .as_str()
+        //         .unwrap(),
+        //     "1k".to_string()
+        // );
     }
 
     #[test]
