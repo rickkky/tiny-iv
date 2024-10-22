@@ -5,6 +5,6 @@ export function setup(engine: string) {
   console.log(`Setup Hmap engine: ${engine}`);
 }
 
-export function hello() {
-  return 'Hello, HiMap!';
+export function hello(pkg: string = 'core') {
+  return `Hello @himap/${pkg}`;
 }
