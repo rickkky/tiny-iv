@@ -9,7 +9,7 @@ import { onMounted } from 'vue';
 
 onMounted(() => {
   fetch('/himap-point-selector.umd.js').then((res) => {
-    res.text().then((text) => {});
+    res.text();
   });
 });
 </script>

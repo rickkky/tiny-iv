@@ -1,16 +1,17 @@
 <template>
-  <div class="hi-map-point-selector">{{ greeting }}</div>
+  <div class="hi-map-point-selector">{{ greet() }}</div>
 </template>
 
-<script>
+<script lang="ts">
+import Vue from 'vue';
 import { hello } from '@himap/core';
 
-export default {
+export default Vue.extend({
   name: 'HiMapPointSelector',
   methods: {
     greet() {
       return hello('point-selector');
     },
   },
-};
+});
 </script>

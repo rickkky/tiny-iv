@@ -1,7 +1,8 @@
 <template>
   <div class="home">
     <HelloWorld msg="Welcome to Your Vue.js + TypeScript App" />
-    <HimapPointSelectorProxy />
+    <button @click="pointSelectorVisible = true">Show Selector</button>
+    <HimapPointSelectorProxy v-if="pointSelectorVisible" />
   </div>
 </template>
 
@@ -13,6 +14,11 @@ export default Vue.extend({
   name: 'Home',
   components: {
     HelloWorld
+  },
+  data() {
+    return {
+      pointSelectorVisible: false
+    };
   }
 });
 </script>
