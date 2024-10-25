@@ -3,14 +3,20 @@
 </template>
 
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent, type PropType } from 'vue';
 import { hello } from '@himap/core';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'HiMapPointSelector',
+  props: {
+    msg: {
+      type: String as PropType<string>,
+      default: 'point-selector',
+    },
+  },
   methods: {
     greet() {
-      return hello('point-selector');
+      return hello(this.msg);
     },
   },
 });

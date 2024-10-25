@@ -8,7 +8,7 @@ export default defineConfig({
     outDir: 'dist/main',
     lib: {
       entry: 'src/index.ts',
-      formats: ['umd'],
+      formats: ['umd', 'es'],
       name: 'HimapPointSelector',
       fileName: 'himap-point-selector',
     },

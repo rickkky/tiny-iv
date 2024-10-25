@@ -3,11 +3,11 @@ import App from './App.vue';
 import './registerServiceWorker';
 import router from './router';
 import store from './store';
-import HimapPointSelector from '@himap/point-selector';
+// import HimapPointSelector from '@himap/point-selector';
 
 window.Vue = Vue;
 
-Vue.use(HimapPointSelector as any);
+// Vue.use(HimapPointSelector as any);
 
 Vue.config.productionTip = false;
 
